@@ -54,51 +54,11 @@ product-service/
 
 ## Architecture Overview
 
-```mermaid
-flowchart LR
-    Clients[ VPC clients ] -->|1. GET /products | ALB
+![Product Service AWS architecture diagram with official AWS service icons](docs/aws-architecture.svg)
 
-    subgraph AWS["AWS Cloud - configured region"]
-        subgraph AppVPC["Application VPC - private subnets"]
-            ALB["2. Internal Application Load Balancer<br/>Production :3000 / Test :3001"]
-            ECS["3. Amazon ECS Service<br/>AWS Fargate + Fargate Spot"]
-            RDS[("4. Amazon RDS<br/>MySQL products")]
-            ALB --> ECS
-            ECS --> RDS
-        end
-
-        ECR["5. Amazon ECR<br/>Product Service image"]
-        Pipeline["6. CodePipeline"]
-        Build["7. CodeBuild<br/>Docker build and push"]
-        Deploy["8. CodeDeploy<br/>Blue/green deployment"]
-        Artifacts[("S3 pipeline artifacts")]
-        Pipeline --> Build
-        Build --> ECR
-        Pipeline --> Deploy
-        Deploy --> ECS
-        Build -. source/build artifacts .-> Artifacts
-
-        Orders["9. AWS Lambda<br/>Save order - X-Ray"]
-        Dynamo[("10. Existing DynamoDB<br/>Orders table")]
-        Orders --> Dynamo
-        Ops["11. CloudWatch<br/>Logs and dashboard"]
-        ECS --> Ops
-        Orders --> Ops
-        Secrets["Secrets Manager"]
-        ECS -. database credentials .-> Secrets
-        IaC["CloudFormation"]
-        IaC -. provisions into supplied network .-> ECS
-        IaC -. provisions .-> ALB
-        IaC -. provisions .-> Pipeline
-        IaC -. provisions .-> Orders
-        IaC -. separate ECR stack .-> ECR
-    end
-
-    GitHub[Developer / GitHub] -->|commit| Pipeline
-    OrdersInput[Order invocation<br/>manual or separately configured trigger] --> Orders
-    ECS -->|JSON response| ALB
-    ALB -->|2xx / 4xx response| Clients
-```
+*Service icons are from the
+[official AWS Architecture Icons package](https://aws.amazon.com/architecture/icons/)
+(July 2026 release).*
 
 ## AWS Services Used
 
