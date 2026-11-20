@@ -1,0 +1,56 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - export IMAGE_TAG="$(printf '%s' "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c 1-12)"
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$(printf '%s' "$ECR_REPOSITORY_URI" | cut -d/ -f1)"
+  build:
+    commands:
+      - docker build --pull -t "$ECR_REPOSITORY_URI:$IMAGE_TAG" .
+  post_build:
+    commands:
+      - docker push "$ECR_REPOSITORY_URI:$IMAGE_TAG"
+      - printf '{"ImageURI":"%s"}\n' "$ECR_REPOSITORY_URI:$IMAGE_TAG" > imageDetail.json
+      - |
+        node <<'NODE'
+        const fs = require("node:fs");
+        const taskDefinition = JSON.parse(fs.readFileSync("taskdef-template.json", "utf8"));
+        const container = taskDefinition.containerDefinitions.find(
+          (definition) => definition.name === "product-service"
+        );
+
+        if (!container) {
+          throw new Error("taskdef-template.json must define the product-service container");
+        }
+
+        taskDefinition.executionRoleArn = process.env.ECS_EXECUTION_ROLE_ARN;
+        taskDefinition.taskRoleArn = process.env.ECS_TASK_ROLE_ARN;
+        container.image = "IMAGE1_NAME";
+        container.environment = [
+          { name: "PORT", value: "3000" },
+          { name: "DB_HOST", value: process.env.DB_HOST },
+          { name: "DB_PORT", value: process.env.DB_PORT },
+          { name: "DB_NAME", value: process.env.DB_NAME }
+        ];
+        container.secrets = [
+          {
+            name: "DB_USER",
+            valueFrom: `${process.env.DB_CREDENTIALS_SECRET_ARN}:username::`
+          },
+          {
+            name: "DB_PASSWORD",
+            valueFrom: `${process.env.DB_CREDENTIALS_SECRET_ARN}:password::`
+          }
+        ];
+        container.logConfiguration.options["awslogs-group"] = process.env.ECS_LOG_GROUP;
+        container.logConfiguration.options["awslogs-region"] = process.env.AWS_DEFAULT_REGION;
+
+        fs.writeFileSync("taskdef.json", `${JSON.stringify(taskDefinition, null, 2)}\n`);
+        NODE
+
+artifacts:
+  files:
+    - appspec.yaml
+    - imageDetail.json
+    - taskdef.json

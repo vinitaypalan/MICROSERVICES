@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECR repository for the Product Service container image.
+
+Resources:
+  ProductServiceRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: product-service
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+
+Outputs:
+  RepositoryName:
+    Description: Name of the Product Service ECR repository.
+    Value: !Ref ProductServiceRepository
+  RepositoryUri:
+    Description: URI to use when tagging and pushing images.
+    Value: !GetAtt ProductServiceRepository.RepositoryUri

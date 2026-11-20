@@ -1,0 +1,792 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Internal AWS Fargate service for the Product Service API with CodeDeploy blue/green deployments.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC that can reach the RDS instance.
+  VpcCidr:
+    Type: String
+    Description: CIDR range allowed to call the internal API load balancer.
+    AllowedPattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[1-2][0-9]|3[0-2])$
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: At least two subnets in different Availability Zones in the VPC.
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Existing RDS security group; the template adds MySQL ingress from the ECS tasks.
+  DbHost:
+    Type: String
+    Description: RDS endpoint hostname.
+  DbPort:
+    Type: Number
+    Default: 3306
+    MinValue: 1
+    MaxValue: 65535
+  DbName:
+    Type: String
+    Description: Product database name.
+  DbCredentialsSecretArn:
+    Type: String
+    Description: Secrets Manager secret ARN containing JSON keys username and password.
+  ImageUri:
+    Type: String
+    Description: Full URI including tag of the already-pushed Product Service ECR image.
+  MinTaskCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Minimum number of Fargate tasks maintained by auto scaling.
+  MaxTaskCount:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 20
+    Description: Maximum number of Fargate tasks allowed by auto scaling.
+  CpuTargetUtilization:
+    Type: Number
+    Default: 60
+    MinValue: 10
+    MaxValue: 90
+    Description: Average ECS service CPU utilization target percentage.
+  OrdersTableName:
+    Type: String
+    Description: Name of the existing DynamoDB table where orders are stored.
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the packaged Orders Lambda deployment ZIP.
+  LambdaCodeS3Key:
+    Type: String
+    Description: S3 object key for the packaged Orders Lambda deployment ZIP.
+  SourceConnectionArn:
+    Type: String
+    Description: ARN of an authorized AWS CodeStar connection for the source repository.
+  SourceRepository:
+    Type: String
+    Description: GitHub repository in owner/name format.
+  SourceBranch:
+    Type: String
+    Default: main
+    Description: Branch that triggers the pipeline.
+  EcrRepositoryName:
+    Type: String
+    Default: product-service
+    Description: Name of the existing ECR repository for Product Service images.
+
+Resources:
+  ProductServiceCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: product-service
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Base: 1
+          Weight: 1
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 2
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ProductServiceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/product-service
+      RetentionInDays: 30
+
+  ProductServiceExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Allows Fargate to pull images, publish logs, and retrieve database credentials.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadProductDatabaseCredentials
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DbCredentialsSecretArn
+
+  ProductServiceTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Application permissions for Product Service tasks; no AWS API permissions are currently required.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  ProductServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: product-service
+      # Fargate requires awsvpc networking and explicit CPU and memory values.
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ProductServiceExecutionRole.Arn
+      TaskRoleArn: !GetAtt ProductServiceTaskRole.Arn
+      ContainerDefinitions:
+        - Name: product-service
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3000"
+            - Name: DB_HOST
+              Value: !Ref DbHost
+            - Name: DB_PORT
+              Value: !Sub "${DbPort}"
+            - Name: DB_NAME
+              Value: !Ref DbName
+          Secrets:
+            - Name: DB_USER
+              ValueFrom: !Sub "${DbCredentialsSecretArn}:username::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DbCredentialsSecretArn}:password::"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - node -e "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ProductServiceLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: product-service
+
+  ProductServiceLoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow VPC clients to access the internal Product Service endpoint.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: !Ref VpcCidr
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3001
+          CidrIp: !Ref VpcCidr
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  ProductServiceTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Product Service traffic only from its internal load balancer.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  ProductServiceTaskIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ProductServiceTaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3000
+      ToPort: 3000
+      SourceSecurityGroupId: !Ref ProductServiceLoadBalancerSecurityGroup
+
+  ProductServiceDatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      FromPort: !Ref DbPort
+      ToPort: !Ref DbPort
+      SourceSecurityGroupId: !Ref ProductServiceTaskSecurityGroup
+
+  ProductServiceLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: product-service
+      Scheme: internal
+      Type: application
+      SecurityGroups:
+        - !Ref ProductServiceLoadBalancerSecurityGroup
+      Subnets: !Ref SubnetIds
+
+  ProductServiceTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: product-service
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      Matcher:
+        HttpCode: "200"
+
+  ProductServiceGreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: product-service-green
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckPort: traffic-port
+      Matcher:
+        HttpCode: "200"
+
+  ProductServiceListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ProductServiceLoadBalancer
+      Port: 3000
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ProductServiceTargetGroup
+
+  ProductServiceTestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ProductServiceLoadBalancer
+      Port: 3001
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ProductServiceGreenTargetGroup
+
+  ProductService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ProductServiceListener
+      - ProductServiceTestListener
+      - ProductServiceDatabaseIngress
+    Properties:
+      ServiceName: product-service
+      Cluster: !Ref ProductServiceCluster
+      TaskDefinition: !Ref ProductServiceTaskDefinition
+      DesiredCount: !Ref MinTaskCount
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Base: 1
+          Weight: 1
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 2
+      PlatformVersion: LATEST
+      EnableECSManagedTags: true
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentController:
+        Type: CODE_DEPLOY
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ProductServiceTaskSecurityGroup
+          Subnets: !Ref SubnetIds
+      LoadBalancers:
+        - ContainerName: product-service
+          ContainerPort: 3000
+          TargetGroupArn: !Ref ProductServiceTargetGroup
+
+  ProductServiceScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn:
+      - ProductService
+    Properties:
+      MinCapacity: !Ref MinTaskCount
+      MaxCapacity: !Ref MaxTaskCount
+      ResourceId: service/product-service/product-service
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ProductServiceCpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: product-service-cpu-target-tracking
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ProductServiceScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: !Ref CpuTargetUtilization
+        ScaleInCooldown: 120
+        ScaleOutCooldown: 60
+
+  ProductServiceCodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: product-service
+      ComputePlatform: ECS
+
+  ProductServiceCodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+
+  ProductServiceCodeDeployGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    DependsOn:
+      - ProductService
+      - ProductServiceTestListener
+    Properties:
+      ApplicationName: !Ref ProductServiceCodeDeployApplication
+      DeploymentGroupName: product-service
+      ServiceRoleArn: !GetAtt ProductServiceCodeDeployRole.Arn
+      DeploymentConfigName: CodeDeployDefault.ECSCanary10Percent5Minutes
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      ECSServices:
+        - ClusterName: !Ref ProductServiceCluster
+          ServiceName: !GetAtt ProductService.Name
+      LoadBalancerInfo:
+        TargetGroupPairInfoList:
+          - ProdTrafficRoute:
+              ListenerArns:
+                - !Ref ProductServiceListener
+            TestTrafficRoute:
+              ListenerArns:
+                - !Ref ProductServiceTestListener
+            TargetGroups:
+              - Name: !GetAtt ProductServiceTargetGroup.TargetGroupName
+              - Name: !GetAtt ProductServiceGreenTargetGroup.TargetGroupName
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+
+  ProductServicePipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  ProductServiceCodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BuildAndPushProductImage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EcrAuthorization
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PushProductImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeRepositories
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !Sub "arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepositoryName}"
+              - Sid: BuildLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/product-service:*"
+              - Sid: PipelineArtifactBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !GetAtt ProductServicePipelineArtifactBucket.Arn
+              - Sid: PipelineArtifactObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub "${ProductServicePipelineArtifactBucket.Arn}/*"
+
+  ProductServiceCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: product-service
+      Description: Builds and pushes the Product Service image to ECR.
+      ServiceRole: !GetAtt ProductServiceCodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:7.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ECR_REPOSITORY_URI
+            Type: PLAINTEXT
+            Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepositoryName}"
+          - Name: ECS_EXECUTION_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !GetAtt ProductServiceExecutionRole.Arn
+          - Name: ECS_TASK_ROLE_ARN
+            Type: PLAINTEXT
+            Value: !GetAtt ProductServiceTaskRole.Arn
+          - Name: DB_HOST
+            Type: PLAINTEXT
+            Value: !Ref DbHost
+          - Name: DB_PORT
+            Type: PLAINTEXT
+            Value: !Sub "${DbPort}"
+          - Name: DB_NAME
+            Type: PLAINTEXT
+            Value: !Ref DbName
+          - Name: DB_CREDENTIALS_SECRET_ARN
+            Type: PLAINTEXT
+            Value: !Ref DbCredentialsSecretArn
+          - Name: ECS_LOG_GROUP
+            Type: PLAINTEXT
+            Value: !Ref ProductServiceLogGroup
+      TimeoutInMinutes: 30
+
+  ProductServicePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RunProductServicePipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: UseSourceConnection
+                Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                  - codeconnections:UseConnection
+                Resource: !Ref SourceConnectionArn
+              - Sid: PipelineArtifacts
+                Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt ProductServicePipelineArtifactBucket.Arn
+                  - !Sub "${ProductServicePipelineArtifactBucket.Arn}/*"
+              - Sid: StartBuild
+                Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: !GetAtt ProductServiceCodeBuildProject.Arn
+              - Sid: DeployProductService
+                Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplication
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                Resource: "*"
+              - Sid: PassBuildRole
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt ProductServiceCodeBuildRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: codebuild.amazonaws.com
+
+  ProductServicePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: product-service
+      RoleArn: !GetAtt ProductServicePipelineRole.Arn
+      RestartExecutionOnUpdate: true
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ProductServicePipelineArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: "1"
+              Configuration:
+                ConnectionArn: !Ref SourceConnectionArn
+                FullRepositoryId: !Ref SourceRepository
+                BranchName: !Ref SourceBranch
+                DetectChanges: "true"
+                OutputArtifactFormat: CODE_ZIP
+              OutputArtifacts:
+                - Name: SourceArtifact
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: BuildAndPushImage
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref ProductServiceCodeBuildProject
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: BlueGreenDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeployToECS
+                Version: "1"
+              Configuration:
+                ApplicationName: !Ref ProductServiceCodeDeployApplication
+                DeploymentGroupName: !Ref ProductServiceCodeDeployGroup
+                TaskDefinitionTemplateArtifact: BuildArtifact
+                TaskDefinitionTemplatePath: taskdef.json
+                AppSpecTemplateArtifact: BuildArtifact
+                AppSpecTemplatePath: appspec.yaml
+                Image1ArtifactName: BuildArtifact
+                Image1ContainerName: product-service
+              InputArtifacts:
+                - Name: BuildArtifact
+              RunOrder: 1
+
+  OrdersLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OrdersLambdaPermissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteOrders
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTableName}"
+              - Sid: WriteLambdaLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Sid: WriteXRayTraces
+                Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: "*"
+
+  OrdersLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: product-service-save-order
+      Description: Validates and stores an order in the existing DynamoDB table.
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt OrdersLambdaRole.Arn
+      Timeout: 10
+      MemorySize: 256
+      TracingConfig:
+        Mode: Active
+      Environment:
+        Variables:
+          ORDERS_TABLE_NAME: !Ref OrdersTableName
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+
+  ProductServiceDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: product-service
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "ECS CPU and Memory Reservation",
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "stat": "Average",
+                "period": 60,
+                "metrics": [
+                  [ "ECS/ContainerInsights", "CPUReservation", "ClusterName", "product-service" ],
+                  [ ".", "MemoryReservation", ".", "." ]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "ECS Desired Task Count",
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "stat": "Average",
+                "period": 60,
+                "metrics": [
+                  [ "ECS/ContainerInsights", "DesiredTaskCount", "ClusterName", "product-service", "ServiceName", "product-service" ]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "ALB 4XX Errors",
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 60,
+                "metrics": [
+                  [ "AWS/ApplicationELB", "HTTPCode_ELB_4XX_Count", "LoadBalancer", "${ProductServiceLoadBalancer.LoadBalancerFullName}" ],
+                  [ ".", "HTTPCode_Target_4XX_Count", ".", "." ]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Orders Lambda Invocations and Errors",
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 60,
+                "metrics": [
+                  [ "AWS/Lambda", "Invocations", "FunctionName", "${OrdersLambdaFunction}" ],
+                  [ ".", "Errors", ".", "." ]
+                ]
+              }
+            }
+          ]
+        }
+
+Outputs:
+  ClusterName:
+    Description: ECS cluster name.
+    Value: !Ref ProductServiceCluster
+  ServiceName:
+    Description: ECS service name.
+    Value: !GetAtt ProductService.Name
+  TaskDefinitionArn:
+    Description: Registered Fargate task definition.
+    Value: !Ref ProductServiceTaskDefinition
+  InternalApiUrl:
+    Description: Internal API endpoint reachable from the VPC.
+    Value: !Sub "http://${ProductServiceLoadBalancer.DNSName}:3000"
+  TaskSecurityGroupId:
+    Description: Security group attached to Fargate tasks.
+    Value: !Ref ProductServiceTaskSecurityGroup
+  OrdersLambdaFunctionName:
+    Description: Lambda function that writes orders to DynamoDB.
+    Value: !Ref OrdersLambdaFunction
+  DashboardName:
+    Description: CloudWatch dashboard name.
+    Value: !Ref ProductServiceDashboard
+  PipelineName:
+    Description: CodePipeline name.
+    Value: !Ref ProductServicePipeline
+  CodeDeployApplicationName:
+    Description: CodeDeploy ECS application name.
+    Value: !Ref ProductServiceCodeDeployApplication
