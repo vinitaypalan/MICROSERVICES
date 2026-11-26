@@ -133,9 +133,9 @@
   <text class="section" x="255" y="506">Application VPC - existing VPC</text>
   <rect class="vpc" x="240" y="520" width="900" height="405" rx="16" />
   <rect x="255" y="545" width="870" height="165" rx="10" fill="#eef6ff" stroke="#9bb6d0" stroke-width="1.5" />
-  <text class="section" x="275" y="560">Public subnets - ALB across at least two Availability Zones</text>
+  <text class="section" x="275" y="560">Public subnets - internet-facing ALB in 2+ Availability Zones</text>
   <rect x="255" y="720" width="870" height="190" rx="10" fill="#f3f8f2" stroke="#9bb6a0" stroke-width="1.5" />
-  <text class="section" x="275" y="747">Private subnets - ECS tasks and RDS across two Availability Zones</text>
+  <text class="section" x="275" y="747">Private subnets - ECS tasks (no public IPs) and RDS</text>
   <path class="dash" d="M1284 472 V535 H470 V631 H458" />
   <text class="sub" x="950" y="528" text-anchor="middle">Web ACL associated with ALB</text>
   <g transform="translate(0 110)">

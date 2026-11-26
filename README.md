@@ -107,9 +107,10 @@ software releases travel through different parts of the system.
 - **AWS Identity and Access Management (IAM)** — Controls which AWS actions
   each part of the project is allowed to do.
 - **Amazon VPC and security groups** — A VPC is a private network in AWS.
-  The ALB is in public subnets; the API and database are in private subnets.
-  Security groups act like traffic rules between them. The ECS template uses
-  a VPC that already exists.
+  The internet-facing ALB is in public subnets. ECS tasks and RDS are in
+  private subnets; tasks have no public IP. Security groups allow API traffic
+  from the ALB and database traffic from ECS tasks. The ECS template uses an
+  existing VPC.
 - **AWS CloudFormation** — Uses setup files to create AWS resources.
 
 ## Request Flow
@@ -170,50 +171,27 @@ steps to follow.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/products?page=1&limit=20` | Get a group of products. `page` picks the group; `limit` picks how many. |
-| `GET` | `/products/:id` | Get one product by its ID (number). |
-| `GET` | `/health` | Check that the API can reach its database. |
-| `GET` | `/me` | Get the signed-in customer's profile. A valid Cognito token is required. |
+| `GET` | `/products?page=1&limit=12` | List products (page and page size; defaults to 1 and 20, maximum 100). |
+| `GET` | `/products/:id` | Get one product by ID. |
+| `GET` | `/health` | Check the database connection. |
+| `GET` | `/me` | Get your profile; requires a valid Cognito ID or access token. |
 
-The database needs a table named `products` with columns for `id`, `name`,
-`description`, `price`, and `image_url`. Anyone can look at products. Only a
-customer with a valid Cognito sign-in token can use `/me`. The API checks that
-the pass came from the right sign-in system, has not expired, and is meant for
-this app.
+Product browsing is public. The `/me` route checks the Cognito token's
+signature, issuer, expiry, and client identity.
 
-To start the website, API, and a practice MySQL database on your computer, run:
+To start the website, API, and sample MySQL database with Docker Compose:
 
 ```powershell
 docker compose up --build
 ```
 
 Open the website at `http://localhost:5173`. The API is at
-`http://localhost:3000`. The practice database starts with sample products.
-Signing in still needs a real Cognito User Pool; the local setup does not make
-fake sign-in accounts.
+`http://localhost:3000`; for example, browse products at
+`http://localhost:3000/products`.
 
-To start only the API and connect it to a database you can reach, first install
-the needed packages. Then set these database settings:
-
-```powershell
-npm ci
-$env:DB_HOST = "your-rds-endpoint"
-$env:DB_PORT = "3306"
-$env:DB_NAME = "products"
-$env:DB_USER = "app_user"
-$env:DB_PASSWORD = "your-password"
-npm start
-```
-
-Try these addresses to check the local API:
-
-```powershell
-Invoke-RestMethod "http://localhost:3000/health"
-Invoke-RestMethod "http://localhost:3000/products?page=1&limit=4"
-Invoke-RestMethod "http://localhost:3000/products/1"
-```
-
-Do not save real passwords or other secrets in Git.
+Browsing works without Cognito. To sign in locally, configure a Cognito User
+Pool, app client, and Hosted UI domain in the root `.env` file. Set the local
+website URL as a callback and logout URL in Cognito.
 
 ## Impact & Value
 
