@@ -1,130 +1,155 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000"
-  role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1120" viewBox="0 0 1500 1120"
+  role="img" aria-labelledby="title description">
   <title id="title">Product Service AWS architecture</title>
-  <desc id="desc">Customer requests flow through CloudFront and a private S3 frontend to a WAF-protected public HTTPS Application Load Balancer, private ECS Fargate tasks and private RDS MySQL. Cognito provides customer identity. The separate Orders Lambda writes to DynamoDB. GitHub, CodePipeline, CodeBuild, ECR and CodeDeploy provide delivery.</desc>
+  <desc id="description">The browser loads the React website from CloudFront and private S3. The browser separately calls the API through AWS WAF and a public HTTPS load balancer. The load balancer sends requests to private ECS tasks, which read private RDS MySQL. Cognito handles customer sign-in. A separate Lambda writes orders to DynamoDB. GitHub, CodePipeline, CodeBuild, ECR and CodeDeploy deliver API updates.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
-      <path d="M0 0L10 4L0 8Z" fill="#526579"/>
+      <path d="M0 0L10 4L0 8Z" fill="#43566a"/>
+    </marker>
+    <marker id="authArrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0 0L10 4L0 8Z" fill="#6b4bb8"/>
     </marker>
     <marker id="deployArrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
-      <path d="M0 0L10 4L0 8Z" fill="#a33bab"/>
+      <path d="M0 0L10 4L0 8Z" fill="#a33b8b"/>
     </marker>
   </defs>
   <style>
-    .bg{fill:#fff}.outer{fill:#f8fafb;stroke:#232f3e;stroke-width:2}
-    .internet{fill:#fff7ec;stroke:#d97706;stroke-width:2}
-    .publicNet{fill:#eff6ff;stroke:#3b82f6;stroke-width:2}
-    .privateNet{fill:#effaf3;stroke:#2d8b57;stroke-width:2}
-    .delivery{fill:#fbf3fc;stroke:#a33bab;stroke-width:2}
-    .card{fill:#fff;stroke:#d2dbe4;stroke-width:1.5}
-    .title{font:700 30px Arial,sans-serif;fill:#172b3a}
-    .section{font:700 17px Arial,sans-serif;fill:#405466}
-    .service{font:700 14px Arial,sans-serif;fill:#172b3a}
-    .sub{font:12px Arial,sans-serif;fill:#526579}
-    .edge{fill:none;stroke:#526579;stroke-width:2.5;marker-end:url(#arrow)}
-    .authEdge{fill:none;stroke:#5b5bd6;stroke-width:2.5;stroke-dasharray:7 5;marker-end:url(#arrow)}
-    .deployEdge{fill:none;stroke:#a33bab;stroke-width:2.5;marker-end:url(#deployArrow)}
+    .background{fill:#fff}
+    .boundary{fill:#f8fafc;stroke:#263746;stroke-width:2}
+    .internet{fill:#fff8ee;stroke:#d98216;stroke-width:2}
+    .public{fill:#eef5ff;stroke:#4476b8;stroke-width:2}
+    .private{fill:#eff8f1;stroke:#34845a;stroke-width:2}
+    .pipeline{fill:#fbf2fa;stroke:#a33b8b;stroke-width:2}
+    .card{fill:#fff;stroke:#cbd5df;stroke-width:1.5}
+    .heading{font:700 29px Arial,sans-serif;fill:#172b3a}
+    .section{font:700 17px Arial,sans-serif;fill:#334b5f}
+    .label{font:700 14px Arial,sans-serif;fill:#172b3a}
+    .small{font:12px Arial,sans-serif;fill:#4c6071}
+    .request{fill:none;stroke:#43566a;stroke-width:2.5;marker-end:url(#arrow)}
+    .auth{fill:none;stroke:#6b4bb8;stroke-width:2.5;stroke-dasharray:7 5;marker-end:url(#authArrow)}
+    .deploy{fill:none;stroke:#a33b8b;stroke-width:2.5;marker-end:url(#deployArrow)}
+    .association{fill:none;stroke:#667788;stroke-width:2;stroke-dasharray:5 5;marker-end:url(#arrow)}
   </style>
 
-  <rect class="bg" width="1500" height="1000"/>
-  <text class="title" x="48" y="48">Product Service | AWS Architecture</text>
-  <rect class="outer" x="35" y="72" width="1430" height="860" rx="18"/>
+  <rect class="background" width="1500" height="1120"/>
+  <text class="heading" x="48" y="48">Product Service | How the AWS parts work together</text>
+  <rect class="boundary" x="35" y="72" width="1430" height="1010" rx="18"/>
 
-  <text class="section" x="58" y="108">PUBLIC INTERNET</text>
-  <rect class="internet" x="58" y="128" width="1384" height="220" rx="16"/>
+  <text class="section" x="58" y="108">CUSTOMERS AND WEBSITE</text>
+  <rect class="internet" x="58" y="128" width="1384" height="206" rx="16"/>
 
-  <rect class="card" x="82" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="157" y="220" text-anchor="middle">Customer Browser</text>
-  <text class="sub" x="157" y="246" text-anchor="middle">React customer experience</text>
+  <rect class="card" x="88" y="174" width="190" height="112" rx="12"/>
+  <text class="label" x="183" y="218" text-anchor="middle">Customer Browser</text>
+  <text class="small" x="183" y="244" text-anchor="middle">Loads the shop and calls the API</text>
 
-  <rect class="card" x="310" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="385" y="220" text-anchor="middle">Amazon CloudFront</text>
-  <text class="sub" x="385" y="246" text-anchor="middle">HTTPS and caching</text>
+  <rect class="card" x="370" y="174" width="190" height="112" rx="12"/>
+  <text class="label" x="465" y="218" text-anchor="middle">Amazon CloudFront</text>
+  <text class="small" x="465" y="244" text-anchor="middle">Delivers website files over HTTPS</text>
 
-  <rect class="card" x="538" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="613" y="220" text-anchor="middle">Private Amazon S3</text>
-  <text class="sub" x="613" y="246" text-anchor="middle">React frontend assets</text>
+  <rect class="card" x="652" y="174" width="190" height="112" rx="12"/>
+  <text class="label" x="747" y="218" text-anchor="middle">Private Amazon S3</text>
+  <text class="small" x="747" y="244" text-anchor="middle">Stores React website files</text>
 
-  <rect class="card" x="766" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="841" y="220" text-anchor="middle">Amazon Cognito</text>
-  <text class="sub" x="841" y="246" text-anchor="middle">Hosted UI and JWTs</text>
+  <rect class="card" x="1092" y="174" width="250" height="112" rx="12"/>
+  <text class="label" x="1217" y="218" text-anchor="middle">Amazon Cognito</text>
+  <text class="small" x="1217" y="244" text-anchor="middle">Customer registration and sign-in</text>
 
-  <rect class="card" x="994" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="1069" y="220" text-anchor="middle">AWS WAF</text>
-  <text class="sub" x="1069" y="246" text-anchor="middle">Associated with ALB</text>
+  <path class="request" d="M278 230H370"/>
+  <path class="request" d="M560 230H652"/>
+  <path class="auth" d="M278 270H980V218H1092"/>
+  <path class="auth" d="M1092 250H1000V304H278"/>
+  <text class="small" x="650" y="324" text-anchor="middle">Sign-in redirects; Cognito returns tokens</text>
+  <path class="request" d="M183 286V320H212V350"/>
+  <text class="small" x="224" y="330">API request</text>
 
-  <rect class="card" x="1222" y="168" width="150" height="130" rx="12"/>
-  <text class="service" x="1297" y="220" text-anchor="middle">Public HTTPS ALB</text>
-  <text class="sub" x="1297" y="246" text-anchor="middle">Port 80 redirects to 443</text>
+  <rect class="card" x="104" y="350" width="216" height="70" rx="12"/>
+  <text class="label" x="212" y="379" text-anchor="middle">AWS WAF</text>
+  <text class="small" x="212" y="401" text-anchor="middle">Checks requests for the ALB</text>
 
-  <path class="edge" d="M232 233H310"/><path class="edge" d="M460 233H538"/>
-  <path class="edge" d="M916 233H994"/><path class="edge" d="M1144 233H1222"/>
-  <path class="authEdge" d="M232 276H613V316H841V298"/>
-  <text class="sub" x="498" y="306">Registration / login redirects</text>
+  <text class="section" x="370" y="410">AWS NETWORK AND API</text>
+  <rect class="boundary" x="58" y="430" width="910" height="380" rx="16"/>
+  <text class="section" x="82" y="462">VPC</text>
 
-  <text class="section" x="58" y="390">AWS VPC / NETWORK BOUNDARY</text>
-  <rect class="publicNet" x="58" y="410" width="280" height="264" rx="16"/>
-  <text class="section" x="82" y="442">Public subnets</text>
-  <rect class="card" x="82" y="462" width="232" height="112" rx="12"/>
-  <text class="service" x="198" y="504" text-anchor="middle">Internet-facing ALB</text>
-  <text class="sub" x="198" y="530" text-anchor="middle">Production :443</text>
-  <text class="sub" x="198" y="548" text-anchor="middle">Test listener :3001</text>
+  <rect class="public" x="82" y="480" width="260" height="290" rx="14"/>
+  <text class="section" x="102" y="512">Public subnets</text>
+  <rect class="card" x="108" y="570" width="208" height="122" rx="12"/>
+  <text class="label" x="212" y="610" text-anchor="middle">Public HTTPS ALB</text>
+  <text class="small" x="212" y="636" text-anchor="middle">443 serves the API</text>
+  <text class="small" x="212" y="656" text-anchor="middle">80 redirects to 443</text>
 
-  <rect class="privateNet" x="358" y="410" width="584" height="264" rx="16"/>
-  <text class="section" x="382" y="442">Private subnets</text>
-  <rect class="card" x="382" y="462" width="150" height="112" rx="12"/>
-  <text class="service" x="457" y="504" text-anchor="middle">ECS Fargate</text>
-  <text class="sub" x="457" y="530" text-anchor="middle">Product API :3000</text>
-  <text class="sub" x="457" y="548" text-anchor="middle">No public IP</text>
-  <rect class="card" x="578" y="462" width="150" height="112" rx="12"/>
-  <text class="service" x="653" y="504" text-anchor="middle">Blue target</text>
-  <text class="sub" x="653" y="530" text-anchor="middle">Existing task set</text>
-  <rect class="card" x="768" y="462" width="150" height="112" rx="12"/>
-  <text class="service" x="843" y="504" text-anchor="middle">RDS MySQL</text>
-  <text class="sub" x="843" y="530" text-anchor="middle">Private database</text>
-  <text class="sub" x="843" y="548" text-anchor="middle">ECS-only ingress</text>
-  <path class="edge" d="M314 518H382"/>
-  <path class="edge" d="M532 518H578"/><path class="edge" d="M728 518H768"/>
-  <text class="sub" x="382" y="610">Security groups: ALB to ECS to RDS. ECS credentials are retrieved from Secrets Manager.</text>
+  <path class="request" d="M212 420V570"/>
 
-  <rect class="card" x="962" y="410" width="480" height="264" rx="16"/>
-  <text class="section" x="986" y="442">Managed support and order processing</text>
-  <rect class="card" x="986" y="462" width="202" height="88" rx="12"/>
-  <text class="service" x="1087" y="500" text-anchor="middle">AWS Secrets Manager</text>
-  <text class="sub" x="1087" y="526" text-anchor="middle">RDS username / password</text>
-  <rect class="card" x="1210" y="462" width="208" height="88" rx="12"/>
-  <text class="service" x="1314" y="500" text-anchor="middle">Amazon CloudWatch</text>
-  <text class="sub" x="1314" y="526" text-anchor="middle">Logs and metrics</text>
-  <rect class="card" x="986" y="566" width="202" height="88" rx="12"/>
-  <text class="service" x="1087" y="604" text-anchor="middle">AWS Lambda</text>
-  <text class="sub" x="1087" y="630" text-anchor="middle">Separate Orders handler</text>
-  <rect class="card" x="1210" y="566" width="208" height="88" rx="12"/>
-  <text class="service" x="1314" y="604" text-anchor="middle">Amazon DynamoDB</text>
-  <text class="sub" x="1314" y="630" text-anchor="middle">Existing orders table</text>
-  <path class="edge" d="M1188 610H1210"/>
+  <rect class="private" x="362" y="480" width="582" height="290" rx="14"/>
+  <text class="section" x="382" y="512">Private subnets</text>
+  <rect class="card" x="390" y="570" width="190" height="122" rx="12"/>
+  <text class="label" x="485" y="610" text-anchor="middle">ECS Fargate API</text>
+  <text class="small" x="485" y="636" text-anchor="middle">Private tasks; no public IP</text>
+  <text class="small" x="485" y="656" text-anchor="middle">Only the ALB can connect</text>
 
-  <text class="section" x="58" y="714">DELIVERY PIPELINE</text>
-  <rect class="delivery" x="58" y="734" width="1384" height="150" rx="16"/>
-  <rect class="card" x="82" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="167" y="822" text-anchor="middle">GitHub</text>
-  <text class="sub" x="167" y="844" text-anchor="middle">Source repository</text>
-  <rect class="card" x="322" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="407" y="822" text-anchor="middle">CodePipeline</text>
-  <text class="sub" x="407" y="844" text-anchor="middle">Tests and release</text>
-  <rect class="card" x="562" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="647" y="822" text-anchor="middle">CodeBuild</text>
-  <text class="sub" x="647" y="844" text-anchor="middle">Tests and image build</text>
-  <rect class="card" x="802" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="887" y="822" text-anchor="middle">Amazon ECR</text>
-  <text class="sub" x="887" y="844" text-anchor="middle">Container images</text>
-  <rect class="card" x="1042" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="1127" y="822" text-anchor="middle">CodeDeploy</text>
-  <text class="sub" x="1127" y="844" text-anchor="middle">Blue / green traffic shift</text>
-  <rect class="card" x="1244" y="790" width="170" height="70" rx="10"/>
-  <text class="service" x="1329" y="822" text-anchor="middle">ECS Fargate</text>
-  <text class="sub" x="1329" y="844" text-anchor="middle">Blue / green service</text>
-  <path class="deployEdge" d="M252 825H322"/><path class="deployEdge" d="M492 825H562"/>
-  <path class="deployEdge" d="M732 825H802"/><path class="deployEdge" d="M972 825H1042"/>
-  <path class="deployEdge" d="M1212 825H1244"/>
+  <rect class="card" x="710" y="570" width="200" height="122" rx="12"/>
+  <text class="label" x="810" y="610" text-anchor="middle">Amazon RDS MySQL</text>
+  <text class="small" x="810" y="636" text-anchor="middle">Private product database</text>
+  <text class="small" x="810" y="656" text-anchor="middle">Only ECS can connect</text>
+
+  <path class="request" d="M316 630H390"/>
+  <path class="request" d="M580 630H710"/>
+  <text class="small" x="647" y="614" text-anchor="middle">SQL</text>
+
+  <rect class="card" x="994" y="430" width="448" height="380" rx="16"/>
+  <text class="section" x="1018" y="462">Other separate AWS services</text>
+
+  <rect class="card" x="1020" y="490" width="190" height="96" rx="12"/>
+  <text class="label" x="1115" y="530" text-anchor="middle">Secrets Manager</text>
+  <text class="small" x="1115" y="554" text-anchor="middle">Keeps database credentials</text>
+
+  <rect class="card" x="1230" y="490" width="190" height="96" rx="12"/>
+  <text class="label" x="1325" y="530" text-anchor="middle">CloudWatch</text>
+  <text class="small" x="1325" y="554" text-anchor="middle">Logs and measurements</text>
+
+  <path class="association" d="M1020 538H956V554H580V570"/>
+  <path class="association" d="M580 594H970V570H1230"/>
+
+  <rect class="card" x="1020" y="618" width="190" height="112" rx="12"/>
+  <text class="label" x="1115" y="658" text-anchor="middle">Orders Lambda</text>
+  <text class="small" x="1115" y="684" text-anchor="middle">Separate order example</text>
+  <text class="small" x="1115" y="704" text-anchor="middle">Not called by this API</text>
+
+  <rect class="card" x="1230" y="618" width="190" height="112" rx="12"/>
+  <text class="label" x="1325" y="658" text-anchor="middle">Amazon DynamoDB</text>
+  <text class="small" x="1325" y="684" text-anchor="middle">Stores order records</text>
+  <path class="request" d="M1210 674H1230"/>
+
+  <text class="section" x="58" y="850">HOW APP UPDATES ARE DELIVERED</text>
+  <rect class="pipeline" x="58" y="870" width="1384" height="176" rx="16"/>
+
+  <rect class="card" x="82" y="918" width="180" height="84" rx="11"/>
+  <text class="label" x="172" y="954" text-anchor="middle">GitHub</text>
+  <text class="small" x="172" y="978" text-anchor="middle">Code changes</text>
+
+  <rect class="card" x="322" y="918" width="180" height="84" rx="11"/>
+  <text class="label" x="412" y="954" text-anchor="middle">CodePipeline</text>
+  <text class="small" x="412" y="978" text-anchor="middle">Runs the release steps</text>
+
+  <rect class="card" x="562" y="918" width="180" height="84" rx="11"/>
+  <text class="label" x="652" y="954" text-anchor="middle">CodeBuild</text>
+  <text class="small" x="652" y="978" text-anchor="middle">Tests and builds</text>
+
+  <rect class="card" x="802" y="918" width="180" height="84" rx="11"/>
+  <text class="label" x="892" y="954" text-anchor="middle">Amazon ECR</text>
+  <text class="small" x="892" y="978" text-anchor="middle">Stores API image</text>
+
+  <rect class="card" x="1042" y="918" width="180" height="84" rx="11"/>
+  <text class="label" x="1132" y="954" text-anchor="middle">CodeDeploy</text>
+  <text class="small" x="1132" y="978" text-anchor="middle">Checks new task set</text>
+
+  <rect class="card" x="1282" y="918" width="132" height="84" rx="11"/>
+  <text class="label" x="1348" y="954" text-anchor="middle">ECS</text>
+  <text class="small" x="1348" y="978" text-anchor="middle">Blue/green</text>
+
+  <path class="deploy" d="M262 960H322"/>
+  <path class="deploy" d="M502 960H562"/>
+  <path class="deploy" d="M742 960H802"/>
+  <path class="deploy" d="M982 960H1042"/>
+  <path class="deploy" d="M1222 960H1282"/>
 </svg>
